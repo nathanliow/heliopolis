@@ -6,10 +6,3 @@ SELECT cron.schedule(
   '0 */4 * * *',
   'SELECT public.capture_city_snapshot()'
 );
-
--- Dispatch ingestion workers every 15 seconds
-SELECT cron.schedule(
-  'dispatch-wallet-queue',
-  '15 seconds',
-  'SELECT dispatch_wallet_queue();'
-);

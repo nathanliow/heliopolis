@@ -46,6 +46,7 @@ export interface WalletStats {
   ingestionStatus?: "queued" | "processing" | "complete" | "failed";
   uniqueTokensSwapped?: number;
   latestBlocktime?: number | null;
+  txnsFetched?: number;
 }
 
 /**

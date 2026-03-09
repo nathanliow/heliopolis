@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWalletFunding, getWalletIdentity, WalletStats } from "@/lib/helius";
-import { addAddressToWebhook } from "@/lib/helius-webhook";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { detectBotActivity } from "@/lib/bot-detection";
 
@@ -48,10 +47,25 @@ export async function GET(
     }
 
     if (existing) {
-      // Ensure address is on the swap webhook (may have been missed on first insert)
-      addAddressToWebhook(address).catch((err) =>
-        console.error("Webhook address sync failed:", err),
-      );
+      let liveIngestionStatus = existing.ingestion_status;
+      let liveTxnsFetched: number | undefined;
+
+      // When wallet isn't complete, check ingestion_queue for real-time status
+      if (existing.ingestion_status !== "complete" && existing.ingestion_status !== "failed") {
+        const { data: queueRow } = await supabase
+          .from("ingestion_queue")
+          .select("status, txns_fetched")
+          .eq("address", address)
+          .single();
+
+        if (queueRow) {
+          // Queue status is more up-to-date (e.g. "processing" before first batch completes)
+          if (queueRow.status === "processing") {
+            liveIngestionStatus = "processing";
+          }
+          liveTxnsFetched = queueRow.txns_fetched ?? 0;
+        }
+      }
 
       const stats: WalletStats = {
         address: existing.address,
@@ -62,11 +76,12 @@ export async function GET(
         firstTxTimestamp: existing.first_tx_at
           ? Math.floor(new Date(existing.first_tx_at).getTime() / 1000)
           : null,
-        ingestionStatus: existing.ingestion_status,
+        ingestionStatus: liveIngestionStatus,
         uniqueTokensSwapped: existing.unique_tokens_swapped,
         latestBlocktime: existing.latest_tx_at
           ? Math.floor(new Date(existing.latest_tx_at).getTime() / 1000)
           : null,
+        txnsFetched: liveTxnsFetched,
       };
       return NextResponse.json(stats);
     }
@@ -125,11 +140,6 @@ export async function GET(
         })
         .eq("address", address);
     }
-
-    // Add to swap webhook (no-ops if HELIUS_WEBHOOK_ID not set)
-    addAddressToWebhook(address).catch((err) =>
-      console.error("Webhook address sync failed:", err),
-    );
 
     // Re-query in case of race condition
     const { data: wallet } = await supabase

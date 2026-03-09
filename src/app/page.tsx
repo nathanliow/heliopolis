@@ -1,6 +1,6 @@
 "use client";
 
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 
 import dynamic from "next/dynamic";
 

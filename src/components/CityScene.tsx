@@ -13,6 +13,7 @@ import AuthPanel from "./AuthPanel";
 import WelcomeOverlay from "./WelcomeOverlay";
 import WalletSearch from "./WalletSearch";
 import IngestionBanner from "./IngestionBanner";
+import QueueStatusBanner from "./QueueStatusBanner";
 import { WalletBuilding, PlacedWallet } from "@/types/wallet";
 import { getBuildingDimensions, getWalletWorldPosition } from "@/lib/building-math";
 import WindowTooltip, { WindowHoverInfo } from "./WindowTooltip";
@@ -353,6 +354,9 @@ export default function CityScene() {
           </Suspense>
         ) : null;
       })()}
+
+      {/* Below branding — queue status */}
+      <QueueStatusBanner />
 
       {/* Top center — search */}
       {mode !== "welcome" && (

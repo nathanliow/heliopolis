@@ -11,9 +11,6 @@ CREATE OR REPLACE FUNCTION public.enqueue_wallet(
 ) RETURNS void
 LANGUAGE plpgsql AS $function$
 DECLARE
-  v_start BIGINT;
-  v_now   BIGINT;
-  v_span  BIGINT;
   v_slices JSONB;
 BEGIN
   INSERT INTO wallets (address, txn_count, volume_traded_sol, fees_paid_sol,
@@ -21,46 +18,10 @@ BEGIN
   VALUES (p_address, 0, 0, 0, p_wallet_age_days, p_first_tx_at, 'queued', NOW())
   ON CONFLICT (address) DO NOTHING;
 
-  IF p_first_tx_at IS NOT NULL THEN
-    v_start := EXTRACT(EPOCH FROM p_first_tx_at)::BIGINT;
-  ELSE
-    v_start := 1584316800; -- Solana mainnet launch 2020-03-16
-  END IF;
-  v_now := EXTRACT(EPOCH FROM NOW())::BIGINT;
-  v_span := (v_now - v_start) / 4;
-
-  IF v_span < 1 THEN
-    v_span := 1;
-  END IF;
-
   v_slices := jsonb_build_array(
     jsonb_build_object(
-      'gte', v_start,
-      'lte', v_start + v_span,
-      'cursor', NULL,
-      'pages_fetched', 0,
-      'txns_fetched', 0,
-      'done', false
-    ),
-    jsonb_build_object(
-      'gte', v_start + v_span + 1,
-      'lte', v_start + 2 * v_span,
-      'cursor', NULL,
-      'pages_fetched', 0,
-      'txns_fetched', 0,
-      'done', false
-    ),
-    jsonb_build_object(
-      'gte', v_start + 2 * v_span + 1,
-      'lte', v_start + 3 * v_span,
-      'cursor', NULL,
-      'pages_fetched', 0,
-      'txns_fetched', 0,
-      'done', false
-    ),
-    jsonb_build_object(
-      'gte', v_start + 3 * v_span + 1,
-      'lte', v_now,
+      'gte', 0,
+      'lte', 9999999999,
       'cursor', NULL,
       'pages_fetched', 0,
       'txns_fetched', 0,
@@ -150,7 +111,7 @@ CREATE OR REPLACE FUNCTION public.complete_ingestion_batch(
 LANGUAGE plpgsql SECURITY DEFINER AS $function$
 BEGIN
   UPDATE ingestion_queue
-  SET status = CASE WHEN p_is_complete THEN 'complete' ELSE 'pending' END,
+  SET status = CASE WHEN p_is_complete THEN 'complete' ELSE 'processing' END,
       slices = p_slices,
       pages_fetched = p_pages_fetched,
       txns_fetched = p_txns_fetched,
@@ -388,55 +349,3 @@ CREATE TRIGGER trg_cleanup_swaps
   FOR EACH STATEMENT
   EXECUTE FUNCTION maybe_cleanup_swap_events();
 
--- ============================================================
--- dispatch_wallet_queue: fan-out edge function invocations
--- SETUP: Requires pg_net extension, vault secret 'service_role_key',
---        and vault secret 'supabase_url' (your project URL, e.g.
---        https://<ref>.supabase.co). Add both via Supabase Dashboard
---        → Project Settings → Vault.
--- ============================================================
-
-CREATE OR REPLACE FUNCTION public.dispatch_wallet_queue()
-RETURNS integer
-LANGUAGE plpgsql AS $function$
-DECLARE
-  pending_count INT;
-  max_workers CONSTANT INT := 5;
-  dispatch_count INT;
-  fn_url TEXT;
-  auth_header TEXT;
-BEGIN
-  SELECT COUNT(*) INTO pending_count
-  FROM ingestion_queue
-  WHERE (status = 'pending'
-     OR (status = 'processing' AND updated_at < NOW() - INTERVAL '5 minutes'))
-    AND retry_count < 3;
-
-  dispatch_count := LEAST(pending_count, max_workers);
-
-  IF dispatch_count = 0 THEN RETURN 0; END IF;
-
-  fn_url := (
-    SELECT decrypted_secret FROM vault.decrypted_secrets
-    WHERE name = 'supabase_url' LIMIT 1
-  ) || '/functions/v1/process-wallet-queue';
-
-  auth_header := 'Bearer ' || (
-    SELECT decrypted_secret FROM vault.decrypted_secrets
-    WHERE name = 'service_role_key' LIMIT 1
-  );
-
-  FOR i IN 1..dispatch_count LOOP
-    PERFORM net.http_post(
-      url := fn_url,
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', auth_header
-      ),
-      body := '{}'::jsonb
-    );
-  END LOOP;
-
-  RETURN dispatch_count;
-END;
-$function$;

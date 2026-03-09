@@ -12,7 +12,28 @@ Helius provides all on-chain data that shapes the city:
 - **Wallet Funding** (`/v1/wallet/{address}/funded-by`) — Retrieves each wallet's first funding transaction to calculate wallet age.
 - **DAS API** (`getAssetsByOwner`) — Fetches all fungible token balances with live prices for the wallet detail panel.
 - **Enhanced Webhooks** — Listens for `SWAP` events across tracked wallets in real time. Each swap spawns a car on the city streets and is stored for historical playback.
-- **Transaction History** (RPC) — Analyzes transaction density to detect bot wallets and keep the city honest.
+- **Transaction History** (`getTransactionsForAddress` RPC) — Powers the ingestion worker. Fetches full wallet history across parallel time-range slices to compute volume, fees, token interactions, and wallet age. Also used for bot detection via transaction density analysis.
+
+## Address Ingestion
+
+When a user searches for a wallet, it's enqueued for ingestion. A standalone Node.js worker on a DigitalOcean droplet processes the queue:
+
+1. **Enqueue** — The Next.js API inserts the wallet + a single-slice job into `ingestion_queue`
+2. **Claim** — The worker continuously polls `claim_next_ingestion_job()` across 20 concurrent worker loops
+3. **Dynamic slicing** — On claim, the worker checks how many jobs are active and splits the wallet's history into parallel time-range slices:
+   - 1 wallet in queue → 16 slices (max parallelism)
+   - 10 wallets → 8 slices each
+   - 80+ wallets → 1 slice each
+4. **Rate-limited fetching** — All Helius RPC calls go through a shared token-bucket rate limiter at 90 req/s (10% headroom below the 100 req/s plan limit)
+5. **Checkpoints** — Every 30 seconds, all slice states and stats are saved atomically. If the worker crashes, it resumes from the last checkpoint without re-splitting
+6. **Completion** — Once all slices finish, the worker enriches token metadata via `getAssetBatch`, assigns a city grid position, and marks the wallet complete
+
+The worker runs via PM2 at `/opt/heliopolis-worker/` on the droplet. Deploy with:
+
+```bash
+scp worker/index.js root@<DROPLET_IP>:/opt/heliopolis-worker/index.js
+pm2 restart heliopolis-worker
+```
 
 ## Project Structure
 
@@ -46,8 +67,12 @@ src/
 │   └── ...
 ├── context/
 │   └── AuthContext.tsx                 # Auth state (Phantom + X)
-└── types/
-    └── wallet.ts                       # Core type definitions
+├── types/
+│   └── wallet.ts                       # Core type definitions
+worker/
+├── index.js                            # Ingestion worker (runs on DO droplet)
+├── package.json                        # Worker dependencies
+└── ecosystem.config.cjs                # PM2 configuration
 ```
 
 ## Local Setup
@@ -97,17 +122,9 @@ Or manually in the SQL Editor, run each file in `supabase/migrations/` in order:
 1. **`00001_schema.sql`** — Tables, indexes, RLS policies, and Realtime publication
 2. **`00002_functions.sql`** — PL/pgSQL functions (wallet ingestion, city placement, snapshots)
 3. **`00003_seed_spiral.sql`** — Seeds the 26x26 city grid spiral layout (676 blocks, 10 parks)
-4. **`00004_cron.sql`** — Cron jobs for snapshots and ingestion dispatch
+4. **`00004_cron.sql`** — Cron job for periodic city snapshots
 
-Before running the migrations, enable these extensions via the Supabase Dashboard (Database → Extensions):
-
-- **pg_net** — HTTP requests from Postgres (used by ingestion dispatch)
-- **pg_cron** — Scheduled jobs
-
-After running migrations, add these secrets via the Supabase Dashboard (Project Settings → Vault):
-
-- **`service_role_key`** — Your Supabase service role key
-- **`supabase_url`** — Your Supabase project URL (e.g. `https://<ref>.supabase.co`)
+Before running the migrations, enable **pg_cron** via the Supabase Dashboard (Database → Extensions).
 
 ### 4. Set up Helius webhook
 
