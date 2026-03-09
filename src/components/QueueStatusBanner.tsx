@@ -78,8 +78,8 @@ export default function QueueStatusBanner() {
 
       {/* Throughput info */}
       <div className="mt-2.5 pt-2.5 border-t border-white/[0.06] space-y-1 text-[10px] text-white/30">
-        <p>25 concurrent workers</p>
-        <p>~4k txns / 10s per worker</p>
+        <p>Dynamic parallel slicing</p>
+        <p>Rate-limited at 90 req/s</p>
       </div>
     </div>
   );

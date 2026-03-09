@@ -45,8 +45,16 @@ export default function IngestionBanner({
         if (data.ingestionStatus === "complete") {
           stopPolling();
           setStatus("complete");
-          const fresh = await onRefetch();
-          const wallet = fresh.find((w) => w.address === address);
+
+          // Retry refetch — position assignment may lag behind completion
+          let wallet: PlacedWallet | undefined;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const fresh = await onRefetch();
+            wallet = fresh.find((w) => w.address === address);
+            if (wallet) break;
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+
           if (wallet) {
             const dims = getBuildingDimensions(wallet);
             const pos = getWalletWorldPosition(wallet, dims);

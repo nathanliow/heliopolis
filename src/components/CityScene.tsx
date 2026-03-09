@@ -13,7 +13,6 @@ import AuthPanel from "./AuthPanel";
 import WelcomeOverlay from "./WelcomeOverlay";
 import WalletSearch from "./WalletSearch";
 import IngestionBanner from "./IngestionBanner";
-import QueueStatusBanner from "./QueueStatusBanner";
 import { WalletBuilding, PlacedWallet } from "@/types/wallet";
 import { getBuildingDimensions, getWalletWorldPosition } from "@/lib/building-math";
 import WindowTooltip, { WindowHoverInfo } from "./WindowTooltip";
@@ -165,7 +164,7 @@ export default function CityScene() {
 
   const fetchWallets = useCallback(async (): Promise<PlacedWallet[]> => {
     try {
-      const res = await fetch("/api/wallets");
+      const res = await fetch(`/api/wallets?t=${Date.now()}`);
       if (!res.ok) return [];
       const data = await res.json();
       const fresh: PlacedWallet[] = data.wallets ?? [];
@@ -354,9 +353,6 @@ export default function CityScene() {
           </Suspense>
         ) : null;
       })()}
-
-      {/* Below branding — queue status */}
-      <QueueStatusBanner />
 
       {/* Top center — search */}
       {mode !== "welcome" && (

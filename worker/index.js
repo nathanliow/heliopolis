@@ -5,6 +5,7 @@ const CONCURRENCY = 20;
 const PAGE_SIZE = 100;
 const MAX_RETRIES = 5;
 const HEARTBEAT_MS = 20_000;
+const PROGRESS_MS = 10_000;
 const CHECKPOINT_MS = 30_000;
 const MAX_ENRICHED_MINTS = 2000;
 const MAX_WALLET_TXNS = 1_000_000;
@@ -391,6 +392,16 @@ async function processOneJob() {
       }
     }, HEARTBEAT_MS);
 
+    // Lightweight progress update for frontend banner (every 10s)
+    const progressInterval = setInterval(async () => {
+      if (abortedRef.value) return;
+      const currentTxns = slices.reduce((sum, s) => sum + s.txns_fetched, 0);
+      await supabase.from("ingestion_queue")
+        .update({ txns_fetched: currentTxns })
+        .eq("address", address)
+        .eq("claim_nonce", claimNonce);
+    }, PROGRESS_MS);
+
     // Global txn counter shared across all slices
     const globalTxnCounter = { value: slices.reduce((sum, s) => sum + s.txns_fetched, 0) };
 
@@ -456,6 +467,7 @@ async function processOneJob() {
     );
 
     clearInterval(heartbeatInterval);
+    clearInterval(progressInterval);
     clearInterval(checkpointInterval);
 
     // Check for failures
