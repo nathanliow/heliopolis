@@ -60,7 +60,8 @@ export default function InstancedSkyscrapers({
   selectedAddress,
 }: InstancedSkyscrapersProps) {
   const timeUniform = useMemo(() => ({ value: 0 }), []);
-  const buildingMat = useMemo(() => createBuildingMaterial(timeUniform), [timeUniform]);
+  const elapsedUniform = useMemo(() => ({ value: 0 }), []);
+  const buildingMat = useMemo(() => createBuildingMaterial(timeUniform, elapsedUniform), [timeUniform, elapsedUniform]);
   const solidMat = useMemo(
     () => createHouseMaterial(timeUniform, 0.85, 1.0),
     [timeUniform],
@@ -231,9 +232,10 @@ export default function InstancedSkyscrapers({
     }
   }, [tierGroups, walletData]);
 
-  // Update time uniform
-  useFrame(() => {
+  // Update time uniforms
+  useFrame((state) => {
     timeUniform.value = timeRef.current;
+    elapsedUniform.value = state.clock.elapsedTime;
   });
 
   // ---- Highlight helpers ----

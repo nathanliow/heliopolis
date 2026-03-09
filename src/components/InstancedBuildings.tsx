@@ -60,13 +60,14 @@ export default function InstancedBuildings({
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const hoveredId = useRef<number | null>(null);
 
-  // Time uniform for shader
+  // Time uniforms for shader
   const timeUniform = useMemo(() => ({ value: 0 }), []);
+  const elapsedUniform = useMemo(() => ({ value: 0 }), []);
 
   // ShaderMaterial with standard PBR + window logic baked in (no onBeforeCompile)
   const material = useMemo(
-    () => createBuildingMaterial(timeUniform),
-    [timeUniform],
+    () => createBuildingMaterial(timeUniform, elapsedUniform),
+    [timeUniform, elapsedUniform],
   );
 
   // Precompute dimensions and colors
@@ -154,9 +155,9 @@ export default function InstancedBuildings({
   }, [wallets, buildingData]);
 
   // Hover effect + time uniform update
-  useFrame(() => {
-    // Update time uniform
+  useFrame((state) => {
     timeUniform.value = timeRef.current;
+    elapsedUniform.value = state.clock.elapsedTime;
   });
 
   const handlePointerMove = useCallback(

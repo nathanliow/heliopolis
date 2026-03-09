@@ -20,6 +20,7 @@ function replaceInclude(source: string, name: string, replacement: string): stri
  */
 export function createBuildingMaterial(
   timeUniform: { value: number },
+  elapsedUniform?: { value: number },
 ): THREE.ShaderMaterial {
   const std = THREE.ShaderLib.standard;
 
@@ -75,6 +76,7 @@ export function createBuildingMaterial(
     "common",
     /* glsl */ `
       uniform float uTime;
+      uniform float uElapsed;
       varying vec3 vBuildingColor;
       varying float vWindowCols, vFillRatio, vLitRatio, vSeed, vFloors;
       varying float vHighlight;
@@ -101,7 +103,7 @@ export function createBuildingMaterial(
         sunsetFactor = 1.0 - (timeNow - 0.50) / 0.08;
       }
 
-      // Night factor
+      // Night factor (scene darkness)
       float nightFactor = 0.0;
       if (timeNow >= 0.50 && timeNow < 0.58) {
         nightFactor = (timeNow - 0.50) / 0.08;
@@ -109,6 +111,25 @@ export function createBuildingMaterial(
         nightFactor = 1.0;
       } else if (timeNow >= 0.92 && timeNow <= 1.0) {
         nightFactor = 1.0 - (timeNow - 0.92) / 0.08;
+      }
+
+      // Window light factor — starts at sunset (~20%), full at night, ~20% at sunrise, off during day
+      float windowFactor = 0.0;
+      if (timeNow >= 0.42 && timeNow < 0.50) {
+        // During sunset: ramp 0→0.2
+        windowFactor = 0.2 * (timeNow - 0.42) / 0.08;
+      } else if (timeNow >= 0.50 && timeNow < 0.58) {
+        // Sunset→night: ramp 0.2→1.0
+        windowFactor = 0.2 + 0.8 * (timeNow - 0.50) / 0.08;
+      } else if (timeNow >= 0.58 && timeNow < 0.92) {
+        // Full night
+        windowFactor = 1.0;
+      } else if (timeNow >= 0.92 && timeNow <= 1.0) {
+        // Night→sunrise: ramp 1.0→0.2
+        windowFactor = 0.2 + 0.8 * (1.0 - (timeNow - 0.92) / 0.08);
+      } else if (timeNow >= 0.0 && timeNow < 0.08) {
+        // During sunrise: ramp 0.2→0
+        windowFactor = 0.2 * (1.0 - timeNow / 0.08);
       }
 
       // Base building color
@@ -150,18 +171,56 @@ export function createBuildingMaterial(
             bool hasWindow = h1 < vFillRatio;
 
             if (hasWindow) {
-              // Hash 2: is window lit? (60% of total across all 4 faces)
+              // Hash 2: per-window threshold for when it turns on/off
               float h2 = fract(sin(colIdx * 53.3 + rowIdx * 419.2 + vSeed * 317.9 + faceId * 2137.7) * 29187.3217);
-              bool isLit = h2 < vLitRatio;
 
-              if (isLit && nightFactor > 0.0) {
-                totalEmissiveRadiance += vec3(0.8, 0.65, 0.3) * nightFactor * 1.2;
-              } else if (!isLit && nightFactor > 0.0) {
-                totalEmissiveRadiance *= 0.5;
-                diffuseColor.rgb *= 0.4;
+              // Scale lit threshold by windowFactor so windows turn on/off gradually
+              // h2 is uniform 0–1; window is lit when h2 < effectiveRatio
+              // As windowFactor rises 0→1, more windows cross the threshold
+              float effectiveLitRatio = vLitRatio * windowFactor;
+              bool isLit = h2 < effectiveLitRatio;
+
+              if (isLit) {
+                // Per-window brightness & color variation
+                float h3 = fract(sin(colIdx * 173.7 + rowIdx * 239.1 + vSeed * 491.3 + faceId * 863.5) * 15731.4219);
+                float h4 = fract(sin(colIdx * 97.3 + rowIdx * 587.1 + vSeed * 163.7 + faceId * 1279.3) * 38147.2917);
+                float h5 = fract(sin(colIdx * 211.9 + rowIdx * 349.3 + vSeed * 607.1 + faceId * 1013.7) * 21317.7631);
+                float brightness = 0.3 + h3 * 1.0;              // 0.3–1.3 wide range
+
+                // Distinct color categories: warm yellow, cool white, amber, blue-ish
+                vec3 windowColor;
+                if (h4 < 0.35) {
+                  windowColor = vec3(0.9, 0.7, 0.28);           // warm yellow
+                } else if (h4 < 0.55) {
+                  windowColor = vec3(0.75, 0.72, 0.55);         // cool white / fluorescent
+                } else if (h4 < 0.8) {
+                  windowColor = vec3(0.95, 0.55, 0.18);         // deep amber
+                } else {
+                  windowColor = vec3(0.5, 0.6, 0.8);            // bluish TV glow
+                }
+                // Extra per-window jitter on top
+                windowColor *= 0.85 + h5 * 0.3;
+
+                // Slow pulsing — each window at its own speed & phase
+                float pulseSpeed = 0.12 + h3 * 0.28;             // 0.12–0.4 Hz
+                float pulsePhase = h5 * 6.2832;                 // 0–2π offset
+                float pulse = 0.4 + 0.6 * sin(uElapsed * pulseSpeed + pulsePhase);
+                brightness *= pulse;
+
+                totalEmissiveRadiance += windowColor * windowFactor * 1.2 * brightness;
+              } else if (windowFactor > 0.0) {
+                // Dark (unlit) windows at night/twilight
+                float h6 = fract(sin(colIdx * 211.9 + rowIdx * 349.3 + vSeed * 607.1 + faceId * 1013.7) * 21317.7631);
+                float darkVar = 0.2 + h6 * 0.4;                 // 0.2–0.6 wider spread
+                float darkMix = windowFactor;                    // fade dark effect in with night
+                totalEmissiveRadiance *= mix(1.0, darkVar, darkMix);
+                diffuseColor.rgb *= mix(1.0, darkVar, darkMix);
               } else {
-                totalEmissiveRadiance *= 0.8;
-                diffuseColor.rgb *= 0.7;
+                // Daytime window variation — glass tint
+                float h7 = fract(sin(colIdx * 131.3 + rowIdx * 277.9 + vSeed * 523.7 + faceId * 947.1) * 18397.5143);
+                float dayVar = 0.55 + h7 * 0.4;                 // 0.55–0.95
+                totalEmissiveRadiance *= dayVar;
+                diffuseColor.rgb *= dayVar;
               }
             }
             // !hasWindow -> normal wall, no modification
@@ -173,6 +232,7 @@ export function createBuildingMaterial(
 
   const uniforms = THREE.UniformsUtils.clone(std.uniforms);
   uniforms.uTime = timeUniform; // direct reference, not cloned
+  uniforms.uElapsed = elapsedUniform ?? { value: 0 };
   uniforms.roughness.value = 0.85;
   uniforms.metalness.value = 0.05;
 
