@@ -39,12 +39,36 @@ export async function GET(request: Request) {
           user.user_metadata?.user_name;
         const xAvatar = user.user_metadata?.avatar_url;
 
-        // Upsert profile with X info
-        await supabase.from("profiles").upsert(
+        const admin = createAdminClient();
+
+        // Check if another profile with the same X username already has a wallet
+        let walletToTransfer: string | null = null;
+        if (xUsername) {
+          const { data: existingProfile } = await admin
+            .from("profiles")
+            .select("id, wallet_address")
+            .eq("x_username", xUsername)
+            .neq("id", user.id)
+            .not("wallet_address", "is", null)
+            .single();
+
+          if (existingProfile?.wallet_address) {
+            walletToTransfer = existingProfile.wallet_address;
+            // Clear the old profile's wallet
+            await admin
+              .from("profiles")
+              .update({ wallet_address: null })
+              .eq("id", existingProfile.id);
+          }
+        }
+
+        // Upsert profile with X info (and transferred wallet if found)
+        await admin.from("profiles").upsert(
           {
             id: user.id,
             x_username: xUsername ?? null,
             x_avatar_url: xAvatar ?? null,
+            ...(walletToTransfer ? { wallet_address: walletToTransfer } : {}),
           },
           { onConflict: "id" }
         );
@@ -52,8 +76,6 @@ export async function GET(request: Request) {
         // If a wallet was pending from a Phantom session, transfer it
         const pendingWallet = cookieStore.get("pendingWalletLink")?.value;
         if (pendingWallet) {
-          const admin = createAdminClient();
-
           // Clear wallet from any other profile to avoid unique constraint violations
           await admin
             .from("profiles")

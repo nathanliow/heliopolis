@@ -212,10 +212,28 @@ export default function CityScene() {
     setIngestingAddress(null);
   }
 
-  function handleWalletSubmit(wallet: WalletBuilding) {
+  async function handleWalletSubmit(wallet: WalletBuilding) {
     setFetchedWallet(wallet);
     setSelectedWallet(wallet);
     setMode("wallet");
+
+    // Try to find placed wallet and fly to it
+    const placed = wallets.find((w) => w.address === wallet.address);
+    if (placed) {
+      const dims = getBuildingDimensions(placed);
+      const pos = getWalletWorldPosition(placed, dims);
+      setSelectedPosition(pos);
+    } else {
+      // Wallet may have just completed — refetch to get position
+      const fresh = await fetchWallets();
+      const freshPlaced = fresh.find((w) => w.address === wallet.address);
+      if (freshPlaced) {
+        const dims = getBuildingDimensions(freshPlaced);
+        const pos = getWalletWorldPosition(freshPlaced, dims);
+        setSelectedWallet(freshPlaced);
+        setSelectedPosition(pos);
+      }
+    }
   }
 
   function handleSelectWallet(wallet: WalletBuilding, position: [number, number, number]) {

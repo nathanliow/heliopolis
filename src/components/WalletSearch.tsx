@@ -54,6 +54,7 @@ export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestion
     setShowSuggestions(false);
     setStatus("found");
     setMessage("Flying to building...");
+    setTimeout(() => setStatus("idle"), 2000);
   }
 
   function selectFromArray(address: string, arr: PlacedWallet[]): boolean {

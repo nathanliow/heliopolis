@@ -67,21 +67,38 @@ export async function POST(request: Request) {
     // Use admin client for DB operations (bypasses RLS)
     const admin = createAdminClient();
 
-    // Check for duplicate wallet claim
+    // Check if wallet is already on another profile
     const { data: existing } = await admin
       .from("profiles")
-      .select("id")
+      .select("id, x_username")
       .eq("wallet_address", walletAddress)
       .single();
 
     if (existing && existing.id !== user.id) {
-      return NextResponse.json(
-        { error: "Wallet already linked to another account" },
-        { status: 409 }
-      );
+      // Clear wallet from the old profile — user proved ownership via signature
+      await admin
+        .from("profiles")
+        .update({ wallet_address: null })
+        .eq("id", existing.id);
+
+      // If the old profile has X info the current one lacks, transfer it
+      if (existing.x_username) {
+        const { data: currentProfile } = await admin
+          .from("profiles")
+          .select("x_username")
+          .eq("id", user.id)
+          .single();
+
+        if (!currentProfile?.x_username) {
+          await admin
+            .from("profiles")
+            .update({ x_username: existing.x_username })
+            .eq("id", user.id);
+        }
+      }
     }
 
-    // Update profile with wallet address
+    // Assign wallet to this user
     await admin
       .from("profiles")
       .update({ wallet_address: walletAddress })
