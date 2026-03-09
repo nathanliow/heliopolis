@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWalletFunding, getWalletIdentity, WalletStats } from "@/lib/helius";
 import { addAddressToWebhook } from "@/lib/helius-webhook";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { detectBotActivity } from "@/lib/bot-detection";
 
 export async function GET(
   _req: NextRequest,
@@ -18,6 +19,20 @@ export async function GET(
 
   try {
     const supabase = createAdminClient();
+
+    // Check bot cache first
+    const { data: cachedBot } = await supabase
+      .from("bot_wallets")
+      .select("address, reason")
+      .eq("address", address)
+      .single();
+
+    if (cachedBot) {
+      return NextResponse.json(
+        { error: cachedBot.reason ?? "Bot activity detected", isBot: true },
+        { status: 422 },
+      );
+    }
 
     // Check if wallet already exists
     const { data: existing, error: selectError } = await supabase
@@ -65,6 +80,22 @@ export async function GET(
       walletAgeDays = Math.floor(
         (Date.now() / 1000 - funding.timestamp) / 86400,
       );
+    }
+
+    // Bot detection gate — fail open on errors
+    try {
+      const botResult = await detectBotActivity(address);
+      if (botResult.isBot) {
+        await supabase
+          .from("bot_wallets")
+          .upsert({ address, reason: botResult.reason }, { onConflict: "address" });
+        return NextResponse.json(
+          { error: botResult.reason ?? "Bot activity detected", isBot: true },
+          { status: 422 },
+        );
+      }
+    } catch (botErr) {
+      console.warn("Bot detection failed, proceeding with ingestion:", botErr);
     }
 
     // Atomic wallet + queue insert

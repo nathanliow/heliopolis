@@ -58,6 +58,9 @@ export default function WelcomeOverlay({
     const res = await fetch(`/api/wallet/${walletAddress}`);
     if (!res.ok) {
       const body = await res.json().catch(() => null);
+      if (body?.isBot) {
+        throw new Error("Bot activity detected — this wallet cannot be added to the city");
+      }
       throw new Error(body?.error ?? `Request failed (${res.status})`);
     }
     const stats = await res.json();
@@ -105,11 +108,14 @@ export default function WelcomeOverlay({
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0a0a12]/90 backdrop-blur-sm">
       <div className="max-w-sm w-full px-4 sm:px-6 text-center space-y-6">
         <div className="space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Heliopolis
-          </h1>
+          <div className="flex items-center justify-center gap-2.5">
+            <img src="/helius-icon.svg" alt="Helius" className="w-7 h-7 sm:w-8 sm:h-8" />
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: "#E35930" }}>
+              Heliopolis
+            </h1>
+          </div>
           <p className="text-sm text-white/40">
-            A city built from Solana wallets
+            A city powered by Helius
           </p>
         </div>
 
@@ -120,12 +126,12 @@ export default function WelcomeOverlay({
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             disabled={loading}
-            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/25 font-mono text-xs focus:outline-none focus:border-purple-500/50 transition-colors disabled:opacity-50"
+            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/25 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#E35930]/50 focus:border-[#E35930] transition-colors disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={loading || !address.trim()}
-            className="w-full px-4 py-2.5 bg-purple-600/80 hover:bg-purple-600 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+            className="w-full px-4 py-2.5 bg-[#E35930]/80 hover:bg-[#E35930] rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
@@ -149,9 +155,9 @@ export default function WelcomeOverlay({
         <button
           onClick={onExplore}
           disabled={loading}
-          className="w-full px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white/60 text-sm transition-colors disabled:opacity-50"
+          className="w-full px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white/60 text-sm transition-colors disabled:opacity-50 cursor-pointer"
         >
-          Explore demo city
+          Explore city
         </button>
       </div>
     </div>
