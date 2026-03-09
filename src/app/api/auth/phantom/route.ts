@@ -77,30 +77,35 @@ export async function POST(request: Request) {
       .neq("id", linkData.user.id)
       .single();
 
-    let xUsername: string | null = null;
-    let xAvatarUrl: string | null = null;
-
     if (existingProfile) {
-      // Transfer X info from the existing profile
-      xUsername = existingProfile.x_username;
-      xAvatarUrl = existingProfile.x_avatar_url;
+      // Transfer X info from the existing profile and claim the wallet
+      const xUsername = existingProfile.x_username;
+      const xAvatarUrl = existingProfile.x_avatar_url;
 
-      // Strip the old profile clean so it doesn't appear as a duplicate
+      // Strip the old profile clean
       await supabase
         .from("profiles")
         .update({ wallet_address: null, x_username: null, x_avatar_url: null })
         .eq("id", existingProfile.id);
-    }
 
-    // Upsert profile with wallet and any transferred X info
-    await supabase.from("profiles").upsert(
-      {
-        id: linkData.user.id,
-        wallet_address: walletAddress,
-        ...(xUsername ? { x_username: xUsername, x_avatar_url: xAvatarUrl } : {}),
-      },
-      { onConflict: "id" }
-    );
+      await supabase.from("profiles").upsert(
+        {
+          id: linkData.user.id,
+          wallet_address: walletAddress,
+          ...(xUsername ? { x_username: xUsername, x_avatar_url: xAvatarUrl } : {}),
+        },
+        { onConflict: "id" }
+      );
+    } else {
+      // No other profile has this wallet — just set it
+      await supabase.from("profiles").upsert(
+        {
+          id: linkData.user.id,
+          wallet_address: walletAddress,
+        },
+        { onConflict: "id" }
+      );
+    }
 
     return NextResponse.json({
       token_hash: linkData.properties.hashed_token,
