@@ -69,11 +69,35 @@ export async function POST(request: Request) {
       );
     }
 
-    // Upsert profile
+    // Check if another profile already has this wallet (e.g. an X-linked profile)
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("id, x_username, x_avatar_url")
+      .eq("wallet_address", walletAddress)
+      .neq("id", linkData.user.id)
+      .single();
+
+    let xUsername: string | null = null;
+    let xAvatarUrl: string | null = null;
+
+    if (existingProfile) {
+      // Transfer X info from the existing profile
+      xUsername = existingProfile.x_username;
+      xAvatarUrl = existingProfile.x_avatar_url;
+
+      // Clear wallet from the old profile
+      await supabase
+        .from("profiles")
+        .update({ wallet_address: null })
+        .eq("id", existingProfile.id);
+    }
+
+    // Upsert profile with wallet and any transferred X info
     await supabase.from("profiles").upsert(
       {
         id: linkData.user.id,
         wallet_address: walletAddress,
+        ...(xUsername ? { x_username: xUsername, x_avatar_url: xAvatarUrl } : {}),
       },
       { onConflict: "id" }
     );
