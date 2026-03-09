@@ -18,6 +18,7 @@ export default function IngestionBanner({
   onRefetch,
 }: IngestionBannerProps) {
   const [txnCount, setTxnCount] = useState(0);
+  const [ingestionPhase, setIngestionPhase] = useState<"queued" | "processing">("queued");
   const [status, setStatus] = useState<"ingesting" | "complete" | "failed">("ingesting");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -36,6 +37,9 @@ export default function IngestionBanner({
         const data = await res.json();
 
         setTxnCount(data.txnCount ?? 0);
+        if (data.ingestionStatus === "processing") {
+          setIngestionPhase("processing");
+        }
 
         if (data.ingestionStatus === "complete") {
           stopPolling();
@@ -94,8 +98,11 @@ export default function IngestionBanner({
             <>Indexing failed for <span className="font-mono text-red-300">{shortAddress}</span></>
           ) : (
             <>
-              Indexing <span className="font-mono text-purple-300">{shortAddress}</span>
-              <span className="text-white/40 ml-1.5">{txnCount.toLocaleString()} txns</span>
+              {ingestionPhase === "queued" ? "Waitlisted" : "Indexing"}{" "}
+              <span className="font-mono text-purple-300">{shortAddress}</span>
+              {ingestionPhase === "processing" && (
+                <span className="text-white/40 ml-1.5">{txnCount.toLocaleString()} txns</span>
+              )}
             </>
           )}
         </span>
