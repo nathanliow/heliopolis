@@ -85,15 +85,29 @@ HELIUS_WEBHOOK_ID=your_webhook_id
 
 ### 3. Set up Supabase
 
-Create the following tables in your Supabase project:
+Run the SQL migrations in order against your Supabase project. You can paste them into the SQL Editor in the Supabase Dashboard, or use the Supabase CLI:
 
-- **`wallets`** — Tracked wallet addresses with on-chain stats (txn count, volume, fees, age) and city placement coordinates.
-- **`swap_events`** — Real-time swap transactions received from Helius webhooks.
-- **`profiles`** — User accounts linked to Phantom wallets and X accounts.
-- **`bot_wallets`** — Cached bot detection results.
-- **`city_snapshots`** — Historical city state.
+```bash
+# Via Supabase CLI
+supabase db push
+```
 
-Enable **Realtime** on the `swap_events` table so the frontend can subscribe to live swap activity.
+Or manually in the SQL Editor, run each file in `supabase/migrations/` in order:
+
+1. **`00001_schema.sql`** — Tables, indexes, RLS policies, and Realtime publication
+2. **`00002_functions.sql`** — PL/pgSQL functions (wallet ingestion, city placement, snapshots)
+3. **`00003_seed_spiral.sql`** — Seeds the 26x26 city grid spiral layout (676 blocks, 10 parks)
+4. **`00004_cron.sql`** — Cron jobs for snapshots and ingestion dispatch
+
+Before running the migrations, enable these extensions via the Supabase Dashboard (Database → Extensions):
+
+- **pg_net** — HTTP requests from Postgres (used by ingestion dispatch)
+- **pg_cron** — Scheduled jobs
+
+After running migrations, add these secrets via the Supabase Dashboard (Project Settings → Vault):
+
+- **`service_role_key`** — Your Supabase service role key
+- **`supabase_url`** — Your Supabase project URL (e.g. `https://<ref>.supabase.co`)
 
 ### 4. Set up Helius webhook
 
@@ -101,6 +115,12 @@ Create an **enhanced** webhook in the [Helius dashboard](https://dashboard.heliu
 
 ```
 POST https://your-domain.com/api/webhooks/helius
+```
+
+Or use the setup script:
+
+```bash
+npx tsx scripts/setup-webhook.ts https://your-domain.com
 ```
 
 Set the webhook ID and secret in your `.env.local`.
