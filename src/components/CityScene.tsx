@@ -20,6 +20,10 @@ import InstancedCars, { TrackedCarInfo } from "./InstancedCars";
 import SwapPanel from "./SwapPanel";
 import { useSwapEvents } from "@/lib/swap-events";
 import HowItWorksModal from "./HowItWorksModal";
+import { useAuth } from "@/context/AuthContext";
+import { lazy, Suspense } from "react";
+
+const CitizenCardModal = lazy(() => import("./CitizenCardModal"));
 
 const _trackTarget = new THREE.Vector3();
 const _prevTarget = new THREE.Vector3();
@@ -141,6 +145,8 @@ export default function CityScene() {
   const [loading, setLoading] = useState(true);
   const [ingestingAddress, setIngestingAddress] = useState<string | null>(null);
   const [windowHover, setWindowHover] = useState<WindowHoverInfo | null>(null);
+  const [showCard, setShowCard] = useState(false);
+  const { profile } = useAuth();
 
   // Day/night cycle state (refs to avoid per-frame re-renders)
   const timeRef = useRef(0.75);
@@ -314,8 +320,39 @@ export default function CityScene() {
             {loading ? "Loading..." : `${wallets.length} wallets`}
           </p>
           <HowItWorksModal />
+          {(() => {
+            const myWallet = profile?.wallet_address
+              ? wallets.find((w) => w.address === profile.wallet_address && (!w.ingestionStatus || w.ingestionStatus === "complete"))
+              : null;
+            return myWallet ? (
+              <button
+                onClick={() => setShowCard(true)}
+                className="px-2 py-0.5 bg-[#E35930]/15 hover:bg-[#E35930]/25 border border-[#E35930]/20 rounded-lg text-[10px] font-medium text-[#E35930] transition-colors cursor-pointer"
+              >
+                ID Card
+              </button>
+            ) : null;
+          })()}
         </div>
       </div>
+
+      {/* Citizen ID Card modal */}
+      {showCard && (() => {
+        const myWallet = wallets.find((w) => w.address === profile?.wallet_address);
+        return myWallet ? (
+          <Suspense fallback={null}>
+            <CitizenCardModal
+              wallet={myWallet}
+              identityName={
+                profile?.x_username
+                  ? `@${profile.x_username}`
+                  : myWallet.identityName || null
+              }
+              onClose={() => setShowCard(false)}
+            />
+          </Suspense>
+        ) : null;
+      })()}
 
       {/* Top center — search */}
       {mode !== "welcome" && (

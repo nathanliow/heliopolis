@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { WalletBuilding } from "@/types/wallet";
 import { getBuildingDimensions } from "@/lib/building-math";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase";
+
+const CitizenCardModal = lazy(() => import("./CitizenCardModal"));
 
 interface WalletPanelProps {
   wallet: WalletBuilding | null;
@@ -41,6 +43,7 @@ export default function WalletPanel({ wallet, onClose }: WalletPanelProps) {
     useState<BuildingProfile | null>(null);
   const [balances, setBalances] = useState<BalanceData | null>(null);
   const [balancesLoading, setBalancesLoading] = useState(false);
+  const [showCard, setShowCard] = useState(false);
 
   // Identity from pre-loaded wallet data (no API call needed)
   const identity: WalletIdentity | null = wallet?.identityName
@@ -56,6 +59,7 @@ export default function WalletPanel({ wallet, onClose }: WalletPanelProps) {
     if (!wallet) {
       setBuildingProfile(null);
       setBalances(null);
+      setShowCard(false);
       return;
     }
 
@@ -108,9 +112,19 @@ export default function WalletPanel({ wallet, onClose }: WalletPanelProps) {
   return (
     <div className="w-full sm:w-80 bg-black/50 backdrop-blur-xl border border-white/[0.08] rounded-t-2xl sm:rounded-2xl p-5 text-white max-h-[60vh] sm:max-h-[calc(100vh-8rem)] overflow-y-auto">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">
-          Wallet
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">
+            Wallet
+          </h3>
+          {(!wallet.ingestionStatus || wallet.ingestionStatus === "complete") && (
+            <button
+              onClick={() => setShowCard(true)}
+              className="px-2 py-0.5 bg-[#E35930]/15 hover:bg-[#E35930]/25 border border-[#E35930]/20 rounded-lg text-[10px] font-medium text-[#E35930] transition-colors cursor-pointer"
+            >
+              ID Card
+            </button>
+          )}
+        </div>
         <button
           onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded-lg text-white/30 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
@@ -304,6 +318,20 @@ export default function WalletPanel({ wallet, onClose }: WalletPanelProps) {
           <span className="font-mono">{dims.depth.toFixed(2)}</span>
         </div>
       </div>
+
+      {showCard && (
+        <Suspense fallback={null}>
+          <CitizenCardModal
+            wallet={wallet}
+            identityName={
+              buildingProfile?.x_username
+                ? `@${buildingProfile.x_username}`
+                : identityDisplayName || identity?.name || null
+            }
+            onClose={() => setShowCard(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
