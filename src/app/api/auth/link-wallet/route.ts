@@ -75,12 +75,6 @@ export async function POST(request: Request) {
       .single();
 
     if (existing && existing.id !== user.id) {
-      // Clear wallet from the old profile — user proved ownership via signature
-      await admin
-        .from("profiles")
-        .update({ wallet_address: null })
-        .eq("id", existing.id);
-
       // If the old profile has X info the current one lacks, transfer it
       if (existing.x_username) {
         const { data: currentProfile } = await admin
@@ -96,6 +90,12 @@ export async function POST(request: Request) {
             .eq("id", user.id);
         }
       }
+
+      // Strip the old profile clean so it doesn't appear as a duplicate
+      await admin
+        .from("profiles")
+        .update({ wallet_address: null, x_username: null, x_avatar_url: null })
+        .eq("id", existing.id);
     }
 
     // Assign wallet to this user

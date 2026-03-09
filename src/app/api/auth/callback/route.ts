@@ -54,10 +54,10 @@ export async function GET(request: Request) {
 
           if (existingProfile?.wallet_address) {
             walletToTransfer = existingProfile.wallet_address;
-            // Clear the old profile's wallet
+            // Strip the old profile clean so it doesn't appear as a duplicate
             await admin
               .from("profiles")
-              .update({ wallet_address: null })
+              .update({ wallet_address: null, x_username: null, x_avatar_url: null })
               .eq("id", existingProfile.id);
           }
         }

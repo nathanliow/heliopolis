@@ -85,10 +85,10 @@ export async function POST(request: Request) {
       xUsername = existingProfile.x_username;
       xAvatarUrl = existingProfile.x_avatar_url;
 
-      // Clear wallet from the old profile
+      // Strip the old profile clean so it doesn't appear as a duplicate
       await supabase
         .from("profiles")
-        .update({ wallet_address: null })
+        .update({ wallet_address: null, x_username: null, x_avatar_url: null })
         .eq("id", existingProfile.id);
     }
 
