@@ -48,6 +48,11 @@ export async function GET(
     }
 
     if (existing) {
+      // Ensure address is on the swap webhook (may have been missed on first insert)
+      addAddressToWebhook(address).catch((err) =>
+        console.error("Webhook address sync failed:", err),
+      );
+
       const stats: WalletStats = {
         address: existing.address,
         txnCount: existing.txn_count,
