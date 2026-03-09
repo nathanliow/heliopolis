@@ -136,6 +136,29 @@ export default function HowItWorksModal() {
               </button>
             </div>
 
+            {/* Install Helius */}
+            <div className="mb-5">
+              <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2.5">
+                Install Helius
+              </h3>
+              <div className="space-y-2">
+                {[
+                  { label: "CLI", command: "npm install -g helius-cli" },
+                  { label: "MCP", command: "claude mcp add helius npx helius-mcp@latest" },
+                  { label: "Marketplace", command: "/plugin marketplace add helius-labs/core-ai" },
+                  { label: "Plugin", command: "/plugin install helius@helius-labs" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-3.5 py-3"
+                  >
+                    <div className="text-xs text-white/35 mb-1">{item.label}</div>
+                    <code className="text-xs text-orange-300/80 font-mono">{item.command}</code>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Data sources */}
             <div className="space-y-5">
               {DATA_SOURCES.map((group) => (
