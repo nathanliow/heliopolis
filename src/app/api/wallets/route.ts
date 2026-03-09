@@ -8,19 +8,32 @@ export async function GET() {
     // Self-heal: assign positions to any unplaced complete wallets
     await supabase.rpc("repair_unplaced_wallets");
 
-    const { data, error } = await supabase
-      .from("wallets")
-      .select(
-        "address, txn_count, volume_traded_sol, fees_paid_sol, wallet_age_days, block_row, block_col, local_slot, unique_tokens_swapped, latest_tx_at, identity_name, identity_type, identity_category"
-      )
-      .not("block_row", "is", null)
-      .limit(11000);
+    const [walletsResult, profilesResult] = await Promise.all([
+      supabase
+        .from("wallets")
+        .select(
+          "address, txn_count, volume_traded_sol, fees_paid_sol, wallet_age_days, block_row, block_col, local_slot, unique_tokens_swapped, latest_tx_at, identity_name, identity_type, identity_category"
+        )
+        .not("block_row", "is", null)
+        .limit(11000),
+      supabase
+        .from("profiles")
+        .select("wallet_address, x_username")
+        .not("x_username", "is", null),
+    ]);
 
-    if (error) {
-      throw new Error(`DB error: ${error.message}`);
+    if (walletsResult.error) {
+      throw new Error(`DB error: ${walletsResult.error.message}`);
     }
 
-    const wallets = (data ?? []).map((row) => ({
+    const profileMap = new Map<string, string>();
+    for (const p of profilesResult.data ?? []) {
+      if (p.wallet_address && p.x_username) {
+        profileMap.set(p.wallet_address, p.x_username);
+      }
+    }
+
+    const wallets = (walletsResult.data ?? []).map((row) => ({
       address: row.address,
       txnCount: row.txn_count,
       walletAgeDays: row.wallet_age_days,
@@ -34,6 +47,7 @@ export async function GET() {
       identityName: row.identity_name ?? null,
       identityType: row.identity_type ?? null,
       identityCategory: row.identity_category ?? null,
+      xUsername: profileMap.get(row.address) ?? null,
     }));
 
     return NextResponse.json(

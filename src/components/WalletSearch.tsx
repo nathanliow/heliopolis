@@ -24,26 +24,38 @@ export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestion
     const q = query.trim().toLowerCase();
     if (q.length < 2) return [];
 
-    const scored: { wallet: PlacedWallet; score: number }[] = [];
+    const scored: { wallet: PlacedWallet; score: number; matchField: string }[] = [];
 
     for (const w of wallets) {
       const name = w.identityName?.toLowerCase() ?? "";
+      const xUser = w.xUsername?.toLowerCase() ?? "";
       const addr = w.address.toLowerCase();
 
-      // Exact start match on name gets highest priority
-      if (name && name.startsWith(q)) {
-        scored.push({ wallet: w, score: 3 });
-      } else if (name && name.includes(q)) {
-        scored.push({ wallet: w, score: 2 });
-      } else if (addr.startsWith(q)) {
-        scored.push({ wallet: w, score: 1 });
-      } else if (addr.includes(q)) {
-        scored.push({ wallet: w, score: 0 });
+      let best = -1;
+      let field = "";
+
+      // Name matches (highest priority)
+      if (name && name.startsWith(q)) { best = 5; field = "name"; }
+      else if (name && name.includes(q)) { best = 4; field = "name"; }
+
+      // X handle matches
+      if (xUser && xUser.startsWith(q.replace(/^@/, ""))) {
+        if (best < 5) { best = 5; field = "x"; }
+      } else if (xUser && xUser.includes(q.replace(/^@/, ""))) {
+        if (best < 4) { best = 4; field = "x"; }
       }
+
+      // Address matches
+      if (best < 0) {
+        if (addr.startsWith(q)) { best = 1; field = "address"; }
+        else if (addr.includes(q)) { best = 0; field = "address"; }
+      }
+
+      if (best >= 0) scored.push({ wallet: w, score: best, matchField: field });
     }
 
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, 3).map((s) => s.wallet);
+    return scored.slice(0, 3);
   }, [query, wallets]);
 
   function selectWallet(wallet: PlacedWallet) {
@@ -72,13 +84,19 @@ export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestion
 
     // If there's a top suggestion that matches, use it directly
     if (suggestions.length > 0) {
-      const exactName = suggestions.find(
-        (w) => w.identityName?.toLowerCase() === address.toLowerCase()
+      const q = address.toLowerCase().replace(/^@/, "");
+      const exact = suggestions.find(
+        (s) =>
+          s.wallet.identityName?.toLowerCase() === address.toLowerCase() ||
+          s.wallet.xUsername?.toLowerCase() === q
       );
-      if (exactName) {
-        selectWallet(exactName);
+      if (exact) {
+        selectWallet(exact.wallet);
         return;
       }
+      // If there are suggestions but no exact match, use the top one
+      selectWallet(suggestions[0].wallet);
+      return;
     }
 
     // Check local wallets first
@@ -171,29 +189,41 @@ export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestion
 
       {showSuggestions && suggestions.length > 0 && status === "idle" && (
         <div className="absolute top-full left-0 mt-1.5 w-full sm:w-72 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-xl overflow-hidden z-30">
-          {suggestions.map((w) => (
-            <button
-              key={w.address}
-              type="button"
-              onMouseDown={() => {
-                clearTimeout(blurTimeout.current);
-                selectWallet(w);
-              }}
-              className="w-full px-3.5 py-2.5 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left cursor-pointer"
-            >
-              <div className="min-w-0 flex-1">
-                {w.identityName ? (
-                  <>
-                    <p className="text-sm text-white truncate">{w.identityName}</p>
-                    <p className="text-xs text-white/30 font-mono">{shortAddr(w.address)}</p>
-                  </>
-                ) : (
-                  <p className="text-sm text-white font-mono">{shortAddr(w.address)}</p>
-                )}
-              </div>
-              <span className="text-xs text-white/20 shrink-0">{w.txnCount} txns</span>
-            </button>
-          ))}
+          {suggestions.map(({ wallet: w }) => {
+            const displayName = w.identityName?.replace(/@\w+/, "").trim() || null;
+            const xHandle = w.xUsername || w.identityName?.match(/@(\w+)/)?.[1] || null;
+
+            return (
+              <button
+                key={w.address}
+                type="button"
+                onMouseDown={() => {
+                  clearTimeout(blurTimeout.current);
+                  selectWallet(w);
+                }}
+                className="w-full px-3.5 py-2.5 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left cursor-pointer"
+              >
+                <div className="min-w-0 flex-1">
+                  {displayName || xHandle ? (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        {displayName && (
+                          <span className="text-sm text-white truncate">{displayName}</span>
+                        )}
+                        {xHandle && (
+                          <span className="text-xs text-blue-300 truncate">@{xHandle}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-white/30 font-mono">{shortAddr(w.address)}</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-white font-mono">{shortAddr(w.address)}</p>
+                  )}
+                </div>
+                <span className="text-xs text-white/20 shrink-0">{w.txnCount.toLocaleString()} txns</span>
+              </button>
+            );
+          })}
         </div>
       )}
 

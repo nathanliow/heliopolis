@@ -10,6 +10,7 @@ export interface WalletBuilding {
   identityName?: string | null;
   identityType?: string | null;
   identityCategory?: string | null;
+  xUsername?: string | null;
 }
 
 export interface PlacedWallet extends WalletBuilding {
