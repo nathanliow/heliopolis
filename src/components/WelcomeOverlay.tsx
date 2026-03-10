@@ -7,13 +7,11 @@ import { useAuth } from "@/context/AuthContext";
 interface WelcomeOverlayProps {
   onExplore: () => void;
   onWalletSubmit: (wallet: WalletBuilding) => void;
-  onIngestionStart: (address: string) => void;
 }
 
 export default function WelcomeOverlay({
   onExplore,
   onWalletSubmit,
-  onIngestionStart,
 }: WelcomeOverlayProps) {
   const { profile } = useAuth();
   const [address, setAddress] = useState("");
@@ -32,22 +30,10 @@ export default function WelcomeOverlay({
       setError(null);
       try {
         const wallet = await fetchWallet(profile.wallet_address!);
-        if (
-          wallet.ingestionStatus === "complete" ||
-          !wallet.ingestionStatus
-        ) {
-          onWalletSubmit(wallet);
-          setLoading(false);
-        } else if (wallet.ingestionStatus === "failed") {
-          setError("Transaction ingestion failed. Please try again later.");
-          setLoading(false);
-        } else {
-          // Dismiss overlay and hand off to IngestionBanner
-          setLoading(false);
-          onIngestionStart(profile.wallet_address!);
-        }
+        onWalletSubmit(wallet);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
         setLoading(false);
       }
     })();
@@ -58,10 +44,7 @@ export default function WelcomeOverlay({
     const res = await fetch(`/api/wallet/${walletAddress}`);
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      if (body?.isBot) {
-        throw new Error("Bot activity detected — this wallet cannot be added to the city");
-      }
-      throw new Error(body?.error ?? `Request failed (${res.status})`);
+      throw new Error(body?.error ?? `Wallet not found`);
     }
     const stats = await res.json();
     return {
@@ -83,23 +66,10 @@ export default function WelcomeOverlay({
     setError(null);
     try {
       const wallet = await fetchWallet(trimmed);
-
-      if (
-        wallet.ingestionStatus === "complete" ||
-        !wallet.ingestionStatus
-      ) {
-        onWalletSubmit(wallet);
-        setLoading(false);
-      } else if (wallet.ingestionStatus === "failed") {
-        setError("Transaction ingestion failed. Please try again later.");
-        setLoading(false);
-      } else {
-        // Dismiss overlay and hand off to IngestionBanner
-        setLoading(false);
-        onIngestionStart(trimmed);
-      }
+      onWalletSubmit(wallet);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
       setLoading(false);
     }
   }

@@ -10,10 +10,9 @@ interface WalletSearchProps {
   wallets: PlacedWallet[];
   onSelect: (wallet: PlacedWallet, position: [number, number, number]) => void;
   onRefetch: () => Promise<PlacedWallet[]>;
-  onIngestionStart: (address: string) => void;
 }
 
-export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestionStart }: WalletSearchProps) {
+export default function WalletSearch({ wallets, onSelect, onRefetch }: WalletSearchProps) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
@@ -102,29 +101,20 @@ export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestion
     // Check local wallets first
     if (selectFromArray(address, wallets)) return;
 
-    // Not in local array — check API
+    // Not in local array — check API for already-indexed wallet
     setStatus("searching");
     setMessage("Looking up wallet...");
 
     try {
       const res = await fetch(`/api/wallet/${address}`);
-      if (res.status === 422) {
-        const body = await res.json().catch(() => null);
-        if (body?.isBot) {
-          setStatus("error");
-          setMessage("Bot activity detected — this wallet cannot be added");
-          return;
-        }
-      }
       if (!res.ok) {
         setStatus("not-found");
-        setMessage("Wallet not found");
+        setMessage("Wallet not found in city");
         return;
       }
       const data = await res.json();
 
       if (data.ingestionStatus === "complete" || !data.ingestionStatus) {
-        // Complete but not in local array — refetch and select
         setMessage("Loading building...");
         const fresh = await onRefetch();
         if (selectFromArray(address, fresh)) {
@@ -134,14 +124,9 @@ export default function WalletSearch({ wallets, onSelect, onRefetch, onIngestion
           setStatus("not-found");
           setMessage("Wallet not yet placed in city");
         }
-      } else if (data.ingestionStatus === "failed") {
-        setStatus("error");
-        setMessage("Wallet indexing failed");
       } else {
-        // Hand off to IngestionBanner and reset search
-        setStatus("idle");
-        setMessage("");
-        onIngestionStart(address);
+        setStatus("not-found");
+        setMessage("Wallet not yet indexed");
       }
     } catch {
       setStatus("error");

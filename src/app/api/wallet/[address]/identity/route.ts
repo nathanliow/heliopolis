@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getWalletIdentity } from "@/lib/helius";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 export async function GET(
@@ -9,7 +8,7 @@ export async function GET(
   const { address } = await params;
   const supabase = createAdminClient();
 
-  // Check DB first
+  // Read-only — return cached identity, no writes
   const { data: row } = await supabase
     .from("wallets")
     .select("identity_name, identity_type, identity_category")
@@ -26,24 +25,8 @@ export async function GET(
     });
   }
 
-  // Not cached — fetch from Helius and store
-  const identity = await getWalletIdentity(address);
-
-  if (identity) {
-    await supabase
-      .from("wallets")
-      .update({
-        identity_name: identity.name,
-        identity_type: identity.type,
-        identity_category: identity.category,
-      })
-      .eq("address", address);
-  }
-
   return NextResponse.json(
-    { identity: identity ?? null },
-    {
-      headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400" },
-    },
+    { identity: null },
+    { headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400" } },
   );
 }

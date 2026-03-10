@@ -44,7 +44,7 @@ function makeRng(seed: number) {
   };
 }
 
-interface HouseInstance {
+export interface HouseInstance {
   x: number;
   z: number;
   w: number;
@@ -57,7 +57,7 @@ interface HouseInstance {
   hasChimney: boolean;
 }
 
-function computeHouseSlots(occupiedSlots: Set<string>): HouseInstance[] {
+export function computeHouseSlots(occupiedSlots: Set<string>): HouseInstance[] {
   const houses: HouseInstance[] = [];
 
   for (let row = 0; row < BLOCKS_PER_ROW; row++) {

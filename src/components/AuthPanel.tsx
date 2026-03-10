@@ -48,29 +48,9 @@ export default function AuthPanel({ onClickAddress }: AuthPanelProps) {
     }
   }
 
+  // Auth buttons temporarily disabled
   if (!user) {
-    return (
-      <div className="flex flex-col items-end gap-2">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePhantom}
-            disabled={connecting}
-            className="flex items-center gap-2 px-2.5 md:px-4 py-2 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-400/20 rounded-xl text-sm text-purple-200 transition-colors disabled:opacity-50 backdrop-blur-xl cursor-pointer"
-          >
-            <PhantomIcon />
-            <span className="hidden md:inline">{connecting ? "Signing..." : "Connect Phantom"}</span>
-          </button>
-          <button
-            onClick={handleX}
-            className="flex items-center gap-2 px-2.5 md:px-4 py-2 bg-white/30 hover:bg-white/40 border border-white/30 rounded-xl text-sm text-white transition-colors backdrop-blur-xl cursor-pointer"
-          >
-            <XIcon />
-            <span className="hidden md:inline">Sign in with X</span>
-          </button>
-        </div>
-        {error && <p className="text-red-400 text-sm">{error}</p>}
-      </div>
-    );
+    return null;
   }
 
   return (

@@ -12,53 +12,57 @@ export interface SwapEvent {
 }
 
 const MAX_QUEUE = 60;
+const POLL_INTERVAL = 4000; // fetch a batch every 4 seconds
+const BATCH_SIZE = 3; // swaps per batch
 
 /**
- * Subscribe to swap events via Supabase Realtime.
- * Returns a mutable ref to a queue — avoids React re-renders on every event.
+ * Periodically fetch random existing swap events from the DB
+ * to keep cars spawning without needing live webhook data.
  */
 export function useSwapEvents(wallets: PlacedWallet[]): React.MutableRefObject<SwapEvent[]> {
   const queueRef = useRef<SwapEvent[]>([]);
 
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let channel: any = null;
-    let supabaseRef: any = null;
+    if (wallets.length === 0) return;
 
-    import("@/lib/supabase").then(({ createClient }) => {
-      const supabase = createClient();
-      supabaseRef = supabase;
-      channel = supabase
-        .channel("swap_events_realtime")
-        .on(
-          "postgres_changes" as any,
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "swap_events",
-          },
-          (payload: any) => {
-            const row = payload.new;
-            if (!row) return;
-            const event: SwapEvent = {
-              walletAddress: row.wallet_address,
-              signature: row.signature,
-              tokenIn: row.token_in ?? null,
-              tokenOut: row.token_out ?? null,
-              amountSol: row.amount_sol != null ? Number(row.amount_sol) : null,
-            };
-            const q = queueRef.current;
-            q.push(event);
-            if (q.length > MAX_QUEUE) q.splice(0, q.length - MAX_QUEUE);
-          },
-        )
-        .subscribe();
-    });
+    let cancelled = false;
+
+    async function fetchRandomSwaps() {
+      try {
+        const { createClient } = await import("@/lib/supabase");
+        const supabase = createClient();
+
+        // Fetch random existing swap events
+        const { data } = await supabase
+          .rpc("get_random_swaps", { n: BATCH_SIZE });
+
+        if (cancelled || !data) return;
+
+        for (const row of data) {
+          const event: SwapEvent = {
+            walletAddress: row.wallet_address,
+            signature: `${row.signature}-${Date.now()}`, // unique key so car system treats as new
+            tokenIn: row.token_in ?? null,
+            tokenOut: row.token_out ?? null,
+            amountSol: row.amount_sol != null ? Number(row.amount_sol) : null,
+          };
+          const q = queueRef.current;
+          q.push(event);
+          if (q.length > MAX_QUEUE) q.splice(0, q.length - MAX_QUEUE);
+        }
+      } catch {
+        // Silently ignore — cars just won't spawn this cycle
+      }
+    }
+
+    // Initial fetch after short delay
+    const initialTimeout = setTimeout(fetchRandomSwaps, 2000);
+    const interval = setInterval(fetchRandomSwaps, POLL_INTERVAL);
 
     return () => {
-      if (channel && supabaseRef) {
-        supabaseRef.removeChannel(channel);
-      }
+      cancelled = true;
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
     };
   }, [wallets]);
 

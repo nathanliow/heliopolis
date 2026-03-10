@@ -10,9 +10,7 @@ import SceneLighting from "./SceneLighting";
 import SelectionBeam from "./SelectionBeam";
 import WalletPanel from "./WalletPanel";
 import AuthPanel from "./AuthPanel";
-import WelcomeOverlay from "./WelcomeOverlay";
 import WalletSearch from "./WalletSearch";
-import IngestionBanner from "./IngestionBanner";
 import { WalletBuilding, PlacedWallet } from "@/types/wallet";
 import { getBuildingDimensions, getWalletWorldPosition } from "@/lib/building-math";
 import WindowTooltip, { WindowHoverInfo } from "./WindowTooltip";
@@ -21,22 +19,35 @@ import SwapPanel from "./SwapPanel";
 import { useSwapEvents } from "@/lib/swap-events";
 import HowItWorksModal from "./HowItWorksModal";
 import { useAuth } from "@/context/AuthContext";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useMemo } from "react";
+import PlayerCar from "./PlayerCar";
+import { buildCollisionMap } from "@/lib/collision-map";
 
 const CitizenCardModal = lazy(() => import("./CitizenCardModal"));
 
 const _trackTarget = new THREE.Vector3();
 const _prevTarget = new THREE.Vector3();
 const _delta = new THREE.Vector3();
+const _desiredCamPos = new THREE.Vector3();
+
+// Chase camera constants
+const CHASE_DISTANCE = 18;
+const CHASE_HEIGHT = 10;
+const CHASE_LOOK_AHEAD = 8;
+const CHASE_CAM_LERP = 0.06;
 
 function CameraControls({
   targetPosition,
   trackingRef,
   isTracking,
+  playerCarMode,
+  headingRef,
 }: {
   targetPosition: [number, number, number] | null;
   trackingRef: React.MutableRefObject<[number, number, number] | null>;
   isTracking: boolean;
+  playerCarMode: boolean;
+  headingRef: React.MutableRefObject<number>;
 }) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
 
@@ -44,10 +55,19 @@ function CameraControls({
     const controls = controlsRef.current;
     if (!controls) return;
 
+    if (playerCarMode) {
+      // Disable all user camera manipulation in chase-cam mode
+      controls.enableRotate = false;
+      controls.enablePan = false;
+      controls.enableZoom = false;
+      return;
+    }
+
     if (isTracking) {
-      // Orbit mode for car tracking — useFrame handles position
+      // Orbit mode for AI car tracking — useFrame handles position
       controls.enableRotate = true;
       controls.enablePan = false;
+      controls.enableZoom = true;
       controls.mouseButtons = {
         LEFT: THREE.MOUSE.ROTATE,
         MIDDLE: THREE.MOUSE.DOLLY,
@@ -55,6 +75,8 @@ function CameraControls({
       };
       return;
     }
+
+    controls.enableZoom = true;
 
     if (targetPosition) {
       const target = new THREE.Vector3(...targetPosition);
@@ -92,22 +114,40 @@ function CameraControls({
         RIGHT: THREE.MOUSE.ROTATE,
       };
     }
-  }, [targetPosition, isTracking]);
+  }, [targetPosition, isTracking, playerCarMode]);
 
-  // Smoothly follow tracked car each frame — move both target AND camera
-  // by the same delta so the viewing angle stays constant (no rotation).
-  // Gate on isTracking (React state) not just the ref, so we stop immediately on deselect.
   useFrame(() => {
     const controls = controlsRef.current;
     if (!controls || !isTracking || !trackingRef.current) return;
-    _trackTarget.set(trackingRef.current[0], trackingRef.current[1], trackingRef.current[2]);
 
-    // Save old target, lerp to new, compute the delta
+    const pos = trackingRef.current;
+
+    if (playerCarMode) {
+      // Chase camera: position behind & above the car, look ahead of it
+      const heading = headingRef.current;
+      _desiredCamPos.set(
+        pos[0] - Math.sin(heading) * CHASE_DISTANCE,
+        pos[1] + CHASE_HEIGHT,
+        pos[2] - Math.cos(heading) * CHASE_DISTANCE,
+      );
+      controls.object.position.lerp(_desiredCamPos, CHASE_CAM_LERP);
+
+      // Look ahead of the car
+      _trackTarget.set(
+        pos[0] + Math.sin(heading) * CHASE_LOOK_AHEAD,
+        pos[1] + 1,
+        pos[2] + Math.cos(heading) * CHASE_LOOK_AHEAD,
+      );
+      controls.target.lerp(_trackTarget, CHASE_CAM_LERP);
+      controls.update();
+      return;
+    }
+
+    // AI car tracking — translate both target and camera by the same delta
+    _trackTarget.set(pos[0], pos[1], pos[2]);
     _prevTarget.copy(controls.target);
     controls.target.lerp(_trackTarget, 0.08);
     _delta.subVectors(controls.target, _prevTarget);
-
-    // Shift camera position by the same amount — maintains viewing angle
     controls.object.position.add(_delta);
     controls.update();
   });
@@ -137,13 +177,10 @@ const TIME_PRESETS = [
 ] as const;
 
 export default function CityScene() {
-  const [mode, setMode] = useState<"welcome" | "explore" | "wallet">("welcome");
   const [selectedWallet, setSelectedWallet] = useState<WalletBuilding | null>(null);
   const [selectedPosition, setSelectedPosition] = useState<[number, number, number] | null>(null);
-  const [fetchedWallet, setFetchedWallet] = useState<WalletBuilding | null>(null);
   const [wallets, setWallets] = useState<PlacedWallet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [ingestingAddress, setIngestingAddress] = useState<string | null>(null);
   const [windowHover, setWindowHover] = useState<WindowHoverInfo | null>(null);
   const [showCard, setShowCard] = useState(false);
   const { profile } = useAuth();
@@ -161,6 +198,16 @@ export default function CityScene() {
   const [trackedCar, setTrackedCar] = useState<TrackedCarInfo | null>(null);
   const trackedCarPosRef = useRef<[number, number, number] | null>(null);
   const [cameraFollowSlot, setCameraFollowSlot] = useState<number | null>(null);
+
+  // Player car mode
+  const [carMode, setCarMode] = useState(false);
+  const playerCarPosRef = useRef<[number, number, number] | null>(null);
+  const playerCarHeadingRef = useRef(0);
+
+  const collisionMap = useMemo(
+    () => (carMode ? buildCollisionMap(wallets) : null),
+    [wallets, carMode],
+  );
 
   const fetchWallets = useCallback(async (): Promise<PlacedWallet[]> => {
     try {
@@ -182,12 +229,6 @@ export default function CityScene() {
     fetchWallets();
   }, [fetchWallets]);
 
-  // Re-fetch when a looked-up wallet completes ingestion
-  useEffect(() => {
-    if (fetchedWallet?.ingestionStatus === "complete") {
-      fetchWallets();
-    }
-  }, [fetchedWallet, fetchWallets]);
 
   function handleTimePreset(id: string, time: number) {
     timeRef.current = time;
@@ -200,49 +241,10 @@ export default function CityScene() {
     setActivePreset("cycle");
   }
 
-  function handleExplore() {
-    setMode("explore");
-  }
-
-  function handleIngestionStart(address: string) {
-    setIngestingAddress(address);
-    if (mode === "welcome") setMode("explore");
-  }
-
-  function handleIngestionComplete(wallet: PlacedWallet, position: [number, number, number]) {
-    setIngestingAddress(null);
-    handleSelectWallet(wallet, position);
-  }
-
-  function handleIngestionFailed() {
-    setIngestingAddress(null);
-  }
-
-  async function handleWalletSubmit(wallet: WalletBuilding) {
-    setFetchedWallet(wallet);
-    setSelectedWallet(wallet);
-    setMode("wallet");
-
-    // Try to find placed wallet and fly to it
-    const placed = wallets.find((w) => w.address === wallet.address);
-    if (placed) {
-      const dims = getBuildingDimensions(placed);
-      const pos = getWalletWorldPosition(placed, dims);
-      setSelectedPosition(pos);
-    } else {
-      // Wallet may have just completed — refetch to get position
-      const fresh = await fetchWallets();
-      const freshPlaced = fresh.find((w) => w.address === wallet.address);
-      if (freshPlaced) {
-        const dims = getBuildingDimensions(freshPlaced);
-        const pos = getWalletWorldPosition(freshPlaced, dims);
-        setSelectedWallet(freshPlaced);
-        setSelectedPosition(pos);
-      }
-    }
-  }
 
   function handleSelectWallet(wallet: WalletBuilding, position: [number, number, number]) {
+    setCarMode(false);
+    playerCarPosRef.current = null;
     setSelectedWallet(wallet);
     setSelectedPosition(position);
     setTrackedCar(null);
@@ -260,11 +262,18 @@ export default function CityScene() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") handleDeselect();
+      if (e.key === "Escape") {
+        if (carMode) {
+          setCarMode(false);
+          playerCarPosRef.current = null;
+          return;
+        }
+        handleDeselect();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [carMode]);
 
   function handleClickAddress(address: string) {
     const wallet = wallets.find(w => w.address === address);
@@ -275,6 +284,8 @@ export default function CityScene() {
   }
 
   function handleClickCar(info: TrackedCarInfo) {
+    setCarMode(false);
+    playerCarPosRef.current = null;
     setTrackedCar(info);
     setCameraFollowSlot(info.slotIndex);
     setSelectedWallet(null);
@@ -290,23 +301,6 @@ export default function CityScene() {
 
   return (
     <div className="relative w-full h-screen">
-      {mode === "welcome" && (
-        <WelcomeOverlay
-          onExplore={handleExplore}
-          onWalletSubmit={handleWalletSubmit}
-          onIngestionStart={handleIngestionStart}
-        />
-      )}
-
-      {ingestingAddress && (
-        <IngestionBanner
-          address={ingestingAddress}
-          onComplete={handleIngestionComplete}
-          onFailed={handleIngestionFailed}
-          onRefetch={fetchWallets}
-        />
-      )}
-
       {windowHover && <WindowTooltip {...windowHover} />}
 
       {/* Top left — branding */}
@@ -355,16 +349,13 @@ export default function CityScene() {
       })()}
 
       {/* Top center — search */}
-      {mode !== "welcome" && (
-        <div className="absolute top-[4.5rem] left-3 right-3 sm:top-5 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-10">
-          <WalletSearch
-            wallets={wallets}
-            onSelect={handleSelectWallet}
-            onRefetch={fetchWallets}
-            onIngestionStart={handleIngestionStart}
-          />
-        </div>
-      )}
+      <div className="absolute top-[4.5rem] left-3 right-3 sm:top-5 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-10">
+        <WalletSearch
+          wallets={wallets}
+          onSelect={handleSelectWallet}
+          onRefetch={fetchWallets}
+        />
+      </div>
 
       {/* Top right — auth */}
       <div className="absolute top-3 right-3 sm:top-5 sm:right-5 z-10 flex flex-col items-end gap-3">
@@ -385,9 +376,40 @@ export default function CityScene() {
       {/* Camera controls help — hidden on mobile (irrelevant for touch) */}
       <div className="hidden sm:block absolute bottom-6 left-5 z-10 bg-black/50 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-3 text-xs text-white/35 space-y-1.5">
         <p className="text-white/50 font-medium mb-1">Controls</p>
-        <p><span className="text-white/45">Left-click</span> {selectedWallet ? "Orbit" : "Pan"}</p>
-        <p><span className="text-white/45">Right-click</span> {selectedWallet ? "Pan" : "Rotate"}</p>
-        <p><span className="text-white/45">Scroll</span> Zoom</p>
+        {carMode ? (
+          <>
+            <p><span className="text-white/45">W / ↑</span> Accelerate</p>
+            <p><span className="text-white/45">S / ↓</span> Brake / Reverse</p>
+            <p><span className="text-white/45">A / ←</span> Steer left</p>
+            <p><span className="text-white/45">D / →</span> Steer right</p>
+            <p><span className="text-white/45">Space</span> Brake</p>
+            <p><span className="text-white/45">Esc</span> Exit drive</p>
+          </>
+        ) : (
+          <>
+            <p><span className="text-white/45">Left-click</span> {selectedWallet ? "Orbit" : "Pan"}</p>
+            <p><span className="text-white/45">Right-click</span> {selectedWallet ? "Pan" : "Rotate"}</p>
+            <p><span className="text-white/45">Scroll</span> Zoom</p>
+          </>
+        )}
+        <button
+          onClick={() => {
+            if (carMode) {
+              setCarMode(false);
+              playerCarPosRef.current = null;
+            } else {
+              handleDeselect();
+              setCarMode(true);
+            }
+          }}
+          className={`mt-2 w-full px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer border ${
+            carMode
+              ? "bg-[#E35930]/20 border-[#E35930]/40 text-[#E35930] hover:bg-[#E35930]/30"
+              : "bg-white/5 border-white/10 text-white/50 hover:text-white/70 hover:bg-white/10"
+          }`}
+        >
+          {carMode ? "Exit Drive Mode" : "Drive"}
+        </button>
       </div>
 
       {/* Bottom right — powered by */}
@@ -449,6 +471,13 @@ export default function CityScene() {
           selectedAddress={selectedWallet?.address ?? null}
         />
 
+        <PlayerCar
+          active={carMode}
+          collisionMap={collisionMap}
+          positionRef={playerCarPosRef}
+          headingRef={playerCarHeadingRef}
+        />
+
         {selectedWallet && selectedPosition && (
           <SelectionBeam
             position={selectedPosition}
@@ -458,8 +487,10 @@ export default function CityScene() {
 
         <CameraControls
           targetPosition={selectedPosition}
-          trackingRef={trackedCarPosRef}
-          isTracking={cameraFollowSlot !== null}
+          trackingRef={carMode ? playerCarPosRef : trackedCarPosRef}
+          isTracking={carMode || cameraFollowSlot !== null}
+          playerCarMode={carMode}
+          headingRef={playerCarHeadingRef}
         />
       </Canvas>
     </div>
