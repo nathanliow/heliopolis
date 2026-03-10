@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
     amount_sol: number | null;
   }[] = [];
 
+  // Track the latest timestamp per wallet address
+  const latestTimestamps = new Map<string, number>();
+
   for (const tx of body) {
     if (tx.type !== "SWAP") continue;
     const signature = tx.signature;
@@ -96,12 +99,35 @@ export async function POST(req: NextRequest) {
       token_out: tokenOut,
       amount_sol: amountSol,
     });
+
+    // Track the most recent timestamp for each wallet
+    const txTimestamp: number | undefined = tx.timestamp;
+    if (txTimestamp) {
+      const prev = latestTimestamps.get(walletAddress);
+      if (!prev || txTimestamp > prev) {
+        latestTimestamps.set(walletAddress, txTimestamp);
+      }
+    }
   }
 
   if (swapRows.length > 0) {
     await supabase
       .from("swap_events")
       .upsert(swapRows, { onConflict: "signature", ignoreDuplicates: true });
+
+    // Update latest_tx_at for each wallet that had a swap
+    const updates = Array.from(latestTimestamps.entries()).map(
+      ([address, timestamp]) =>
+        supabase
+          .from("wallets")
+          .update({
+            latest_tx_at: new Date(timestamp * 1000).toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("address", address)
+          .lt("latest_tx_at", new Date(timestamp * 1000).toISOString()),
+    );
+    await Promise.all(updates);
   }
 
   return NextResponse.json({ received: swapRows.length });
